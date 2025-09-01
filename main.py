@@ -1,7 +1,10 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlmodel import SQLModel, Field, Session, create_engine, select
 from pydantic import constr
+import os
+import re  # 👈 Importante para validar títulos
 
 # ---------- INICIALIZACIÓN ----------
 app = FastAPI()
@@ -45,23 +48,6 @@ def on_startup():
     SQLModel.metadata.create_all(engine)
 
 
-# ---------- ENDPOINTS BÁSICOS ----------
-from fastapi.responses import FileResponse
-import os
-
-@app.get("/")
-def serve_frontend():
-    """
-    Devuelve el archivo index.html al entrar en la URL raíz.
-    """
-    return FileResponse(os.path.join("static", "index.html"))
-
-
-#@app.get("/favicon.ico", include_in_schema=False)
-#async def favicon():
-#    return FileResponse("favicon.ico")
-
-
 # ---------- DEPENDENCIA DE SESIÓN ----------
 def get_session():
     with Session(engine) as session:
@@ -69,13 +55,22 @@ def get_session():
 
 
 # ---------- CRUD DE TAREAS ----------
-# Crear una nueva tarea (evitando duplicados)
+# Crear una nueva tarea (evitando duplicados y validando solo letras)
 @app.post("/tasks")
 def create_task(task: Task, session: Session = Depends(get_session)):
     """
     Crea una nueva tarea y la guarda en la base de datos.
-    Antes de crearla, se valida que no exista otra con el mismo título.
+    Antes de crearla, se valida que:
+    - El título tenga solo letras y espacios
+    - No exista otra tarea con el mismo título
     """
+    # Validar que el título solo tenga letras y espacios
+    if not re.match(r"^[A-Za-zÁÉÍÓÚáéíóúÑñ\s]+$", task.title):
+        raise HTTPException(
+            status_code=400,
+            detail="El título solo puede contener letras y espacios"
+        )
+
     # Verificar si ya existe una tarea con el mismo título
     existing_task = session.exec(select(Task).where(Task.title == task.title)).first()
     if existing_task:
@@ -85,7 +80,6 @@ def create_task(task: Task, session: Session = Depends(get_session)):
     session.commit()
     session.refresh(task)
     return task
-
 
 
 # Listar todas las tareas
@@ -108,6 +102,13 @@ def update_task(task_id: int, updated_task: TaskBase, session: Session = Depends
     task = session.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Tarea no encontrada")
+
+    # Validar que el nuevo título solo tenga letras y espacios
+    if not re.match(r"^[A-Za-zÁÉÍÓÚáéíóúÑñ\s]+$", updated_task.title):
+        raise HTTPException(
+            status_code=400,
+            detail="El título solo puede contener letras y espacios"
+        )
 
     task.title = updated_task.title
     task.done = updated_task.done
@@ -132,6 +133,7 @@ def delete_task(task_id: int, session: Session = Depends(get_session)):
     session.commit()
     return {"mensaje": f"Tarea con id {task_id} eliminada"}
 
+
 # -------- MARCAR TAREA COMO COMPLETADA --------
 @app.patch("/tasks/{task_id}/done", response_model=TaskRead)
 def mark_task_done(task_id: int, session: Session = Depends(get_session)):
@@ -148,6 +150,7 @@ def mark_task_done(task_id: int, session: Session = Depends(get_session)):
     session.commit()
     session.refresh(task)
     return task
+
 
 # -------- CAMBIAR SOLO EL ESTADO DE UNA TAREA --------
 @app.patch("/tasks/{task_id}/toggle", response_model=TaskRead)
@@ -170,10 +173,8 @@ def toggle_task(task_id: int, session: Session = Depends(get_session)):
     session.refresh(task)
     return task
 
-from fastapi.staticfiles import StaticFiles
-import os
 
-# -------- SERVIR FRONTEND --------
+# -------- SERVER FRONTEND --------
 # Montamos una carpeta "static" para guardar archivos HTML, CSS y JS
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

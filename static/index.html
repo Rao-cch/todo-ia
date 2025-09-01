@@ -64,20 +64,41 @@
       renderTasks(tasks);
     }
 
-    async function addTask() {
-      const input = document.getElementById("taskInput");
-      const title = input.value.trim();
-      if (!title) return alert("Escribe una tarea");
+async function addTask() {
+  const input = document.getElementById("taskInput");
+  const title = input.value.trim();
 
-      await fetch(API_URL, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({title, done: false})
-      });
+  // Validaciones de frontend
+  if (!title) {
+    return alert("⚠️ Escribe una tarea");
+  }
+  const regex = /^[A-Za-zÁÉÍÓÚáéíóúÑñ\s]+$/;
+  if (!regex.test(title)) {
+    return alert("⚠️ Solo se permiten letras y espacios");
+  }
 
-      input.value = "";
-      fetchTasks();
+  try {
+    // Enviar al backend
+    const res = await fetch(API_URL, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({title, done: false})
+    });
+
+    // Manejar errores del backend (como duplicados)
+    if (!res.ok) {
+      const error = await res.json();
+      alert(`⚠️ ${error.detail || "Error al crear la tarea"}`);
+      return;
     }
+
+    input.value = "";
+    fetchTasks();
+  } catch (err) {
+    alert("❌ Error de conexión con el servidor");
+  }
+}
+
 
     async function toggleTask(id, done) {
       await fetch(`${API_URL}/${id}/toggle`, { method: "PATCH" });
