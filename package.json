@@ -1,0 +1,20 @@
+{
+  "name": "todo-ia",
+  "version": "1.0.0",
+  "scripts": {
+  "test": "echo \"Sin pruebas definidas aún\" && exit 0"
+},
+  "description": "",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rao-cch/todo-ia.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Rao-cch/todo-ia/issues"
+  },
+  "homepage": "https://github.com/Rao-cch/todo-ia#readme"
+}
