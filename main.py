@@ -4,47 +4,32 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import SQLModel, Field, Session, create_engine, select
 from pydantic import constr
 import os
-import re  # 👈 Importante para validar títulos
+import re
 
 # ---------- INICIALIZACIÓN ----------
 app = FastAPI()
 
-# Crear el motor de base de datos (archivo SQLite en la carpeta)
-engine = create_engine("sqlite:///tasks.db")
+# Base de datos
+engine = create_engine("sqlite:///tasks.db", connect_args={"check_same_thread": False})
 
 
 # ---------- MODELOS ----------
 class TaskBase(SQLModel):
-    """
-    Modelo base de tareas (entrada).
-    - title: texto obligatorio entre 1 y 100 caracteres
-    - done: estado de la tarea
-    """
     title: constr(min_length=1, max_length=100)
     done: bool = False
 
 
 class Task(TaskBase, table=True):
-    """
-    Modelo que representa la tabla en la base de datos.
-    """
     id: int | None = Field(default=None, primary_key=True)
 
 
 class TaskRead(TaskBase):
-    """
-    Modelo para mostrar datos en las respuestas.
-    """
     id: int
 
 
 # ---------- CREACIÓN DE TABLAS ----------
 @app.on_event("startup")
 def on_startup():
-    """
-    Este evento se ejecuta automáticamente al iniciar la aplicación.
-    Aquí creamos todas las tablas definidas con SQLModel.
-    """
     SQLModel.metadata.create_all(engine)
 
 
@@ -55,26 +40,16 @@ def get_session():
 
 
 # ---------- CRUD DE TAREAS ----------
-# Crear una nueva tarea (evitando duplicados y validando solo letras)
-@app.post("/tasks")
+@app.post("/tasks", response_model=TaskRead)
 def create_task(task: Task, session: Session = Depends(get_session)):
-    """
-    Crea una nueva tarea y la guarda en la base de datos.
-    Antes de crearla, se valida que:
-    - El título tenga solo letras y espacios
-    - No exista otra tarea con el mismo título
-    """
-    # Validar que el título solo tenga letras y espacios
+    # Validar título
     if not re.match(r"^[A-Za-zÁÉÍÓÚáéíóúÑñ\s]+$", task.title):
-        raise HTTPException(
-            status_code=400,
-            detail="El título solo puede contener letras y espacios"
-        )
+        raise HTTPException(status_code=400, detail="El título solo puede contener letras y espacios")
 
-    # Verificar si ya existe una tarea con el mismo título
-    existing_task = session.exec(select(Task).where(Task.title == task.title)).first()
-    if existing_task:
-        raise HTTPException(status_code=400, detail="Ya existe una tarea con ese título")
+    # Verificar duplicados
+    existing = session.exec(select(Task).where(Task.title == task.title)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Task already exists")
 
     session.add(task)
     session.commit()
@@ -82,33 +57,19 @@ def create_task(task: Task, session: Session = Depends(get_session)):
     return task
 
 
-# Listar todas las tareas
 @app.get("/tasks", response_model=list[TaskRead])
 def read_tasks(session: Session = Depends(get_session)):
-    """
-    Obtiene todas las tareas guardadas en la base de datos.
-    """
-    tasks = session.exec(select(Task)).all()
-    return tasks
+    return session.exec(select(Task)).all()
 
 
-# Actualizar una tarea
 @app.put("/tasks/{task_id}", response_model=TaskRead)
 def update_task(task_id: int, updated_task: TaskBase, session: Session = Depends(get_session)):
-    """
-    PUT = Actualizar datos existentes.
-    Busca una tarea por su id y reemplaza sus valores.
-    """
     task = session.get(Task, task_id)
     if not task:
-        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+        raise HTTPException(status_code=404, detail="Task not found")
 
-    # Validar que el nuevo título solo tenga letras y espacios
     if not re.match(r"^[A-Za-zÁÉÍÓÚáéíóúÑñ\s]+$", updated_task.title):
-        raise HTTPException(
-            status_code=400,
-            detail="El título solo puede contener letras y espacios"
-        )
+        raise HTTPException(status_code=400, detail="El título solo puede contener letras y espacios")
 
     task.title = updated_task.title
     task.done = updated_task.done
@@ -118,70 +79,34 @@ def update_task(task_id: int, updated_task: TaskBase, session: Session = Depends
     return task
 
 
-# Eliminar una tarea
 @app.delete("/tasks/{task_id}")
 def delete_task(task_id: int, session: Session = Depends(get_session)):
-    """
-    DELETE = Eliminar un recurso existente.
-    Busca una tarea por su id y la borra de la base de datos.
-    """
     task = session.get(Task, task_id)
     if not task:
-        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+        raise HTTPException(status_code=404, detail="Task not found")
 
     session.delete(task)
     session.commit()
-    return {"mensaje": f"Tarea con id {task_id} eliminada"}
+    return {"ok": True}
 
 
-# -------- MARCAR TAREA COMO COMPLETADA --------
-@app.patch("/tasks/{task_id}/done", response_model=TaskRead)
-def mark_task_done(task_id: int, session: Session = Depends(get_session)):
-    """
-    PATCH = Modificación parcial.
-    Marca una tarea como completada (done=True).
-    """
-    task = session.get(Task, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Tarea no encontrada")
-
-    task.done = True
-    session.add(task)
-    session.commit()
-    session.refresh(task)
-    return task
-
-
-# -------- CAMBIAR SOLO EL ESTADO DE UNA TAREA --------
 @app.patch("/tasks/{task_id}/toggle", response_model=TaskRead)
 def toggle_task(task_id: int, session: Session = Depends(get_session)):
-    """
-    PATCH = Actualizar parcialmente un recurso.
-    Este endpoint cambia el estado de 'done' de una tarea:
-    - Si estaba en False pasa a True.
-    - Si estaba en True pasa a False.
-    """
     task = session.get(Task, task_id)
     if not task:
-        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+        raise HTTPException(status_code=404, detail="Task not found")
 
-    # Cambiar el estado (toggle)
     task.done = not task.done
-
     session.add(task)
     session.commit()
     session.refresh(task)
     return task
 
 
-# -------- SERVER FRONTEND --------
-# Montamos una carpeta "static" para guardar archivos HTML, CSS y JS
+# ---------- FRONTEND ----------
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Servir el archivo index.html en la raíz "/"
+
 @app.get("/")
 def serve_frontend():
-    """
-    Devuelve el archivo index.html al entrar en la URL raíz.
-    """
     return FileResponse(os.path.join("static", "index.html"))
