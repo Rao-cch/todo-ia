@@ -1,22 +1,28 @@
-name: CI/CD para Todo-IA
+name: CI - Todo-IA (Python Tests)
 
 on:
   push:
-    branches: [main]
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
 
 jobs:
-  build-and-test:
+  test:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Clonar repositorio
+      - name: 📥 Clonar repositorio
         uses: actions/checkout@v3
 
-      - name: Instalar dependencias
-        run: npm install
+      - name: 🐍 Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
-      - name: Ejecutar pruebas
-        run: npm test
+      - name: 📦 Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Desplegar (simulado)
-        run: echo "Desplegando proyecto..."
+      - name: ✅ Ejecutar pruebas
+        run: pytest -q
